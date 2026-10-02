@@ -1,0 +1,67 @@
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+
+Adafruit_MPU6050 mpu;
+const int ALERT_PIN = 18;  
+const float VIB_THRESHOLD = 2.5;   // RMS vibration threshold (g)  
+const float TEMP_THRESHOLD = 70.0; // Temperature threshold (°C)  
+const unsigned long FAULT_DELAY = 5000;   // 5-second persistence check  
+const unsigned long MAINT_INTERVAL = 360000000; // 100 hours (ms)
+
+unsigned long faultStart = 0;
+bool faultActive = false;
+unsigned long lastMaintAlert = 0;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(ALERT_PIN, OUTPUT);
+  digitalWrite(ALERT_PIN, LOW);
+  Wire.begin(21, 22);
+
+  if (!mpu.begin()) {
+    Serial.println("Sensor initialization failed! Check wiring.");
+    while(1) { delay(10); }
+  }
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  lastMaintAlert = millis();
+  Serial.println("Predictive Maintenance System initialized.");
+}
+
+void loop() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // Feature extraction: RMS vibration
+  float rmsVib = sqrt(a.acceleration.x * a.acceleration.x +
+                      a.acceleration.y * a.acceleration.y +
+                      a.acceleration.z * a.acceleration.z);
+
+  // Temperature reading
+  float machineTemp = temp.temperature;
+
+  // Fault detection with persistence
+  if (rmsVib > VIB_THRESHOLD || machineTemp > TEMP_THRESHOLD) {
+    if (!faultActive) {
+      faultStart = millis();
+      faultActive = true;
+    } else if (millis() - faultStart >= FAULT_DELAY) {
+      digitalWrite(ALERT_PIN, HIGH); // Alert ON
+    }
+  } else {
+    faultActive = false;
+    digitalWrite(ALERT_PIN, LOW); // Alert OFF
+  }
+
+  // Maintenance reminder scheduling
+  if (millis() - lastMaintAlert >= MAINT_INTERVAL) {
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(ALERT_PIN, HIGH); delay(200);
+      digitalWrite(ALERT_PIN, LOW); delay(200);
+    }
+    lastMaintAlert = millis();
+  }
+  delay(50);
+}
